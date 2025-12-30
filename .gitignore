@@ -31,3 +31,4 @@ Thumbs.db
 node_modules/
 build/
 yarn.lock
+frontend/appinfo.json
