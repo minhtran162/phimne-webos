@@ -1,10 +1,3 @@
-/*
- * This Source Code Form is subject to the terms of the Mozilla Public
- * License, v. 2.0. If a copy of the MPL was not distributed with this
- * file, You can obtain one at http://mozilla.org/MPL/2.0/.
- *
-*/
-
 var curr_req = false;
 var server_info = false;
 var manifest = false;
@@ -12,7 +5,7 @@ var manifest = false;
 var appInfo = {
     deviceId: null,
     deviceName: 'LG Smart TV',
-    appName: 'Jellyfin for WebOS',
+    appName: 'Phim Ne TV for WebOS',
     appVersion: '0.0.0'
 };
 
@@ -21,17 +14,37 @@ webOS.deviceInfo(function (info) {
     deviceInfo = info;
 });
 
+webOS.fetchAppInfo(function (info) {
+    if (!info) {
+        console.log('fetchAppInfo returned no info');
+        return;
+    }
+
+    if (!info.extraConfig) {
+        console.log('No extraConfig in appinfo.json');
+        return;
+    }
+
+    if (typeof info.extraConfig.baseUrl !== 'string') {
+        console.log('extraConfig.baseUrl missing or invalid');
+        return;
+    }
+
+    document.querySelector('#baseurl').value = info.extraConfig.baseUrl;
+    console.log('Using baseUrl from appinfo.json: ' + info.extraConfig.baseUrl);
+});
+
 //Adds .includes to string to do substring matching
 if (!String.prototype.includes) {
-  String.prototype.includes = function(search, start) {
-    'use strict';
+    String.prototype.includes = function (search, start) {
+        'use strict';
 
-    if (search instanceof RegExp) {
-      throw TypeError('first argument must not be a RegExp');
-    }
-    if (start === undefined) { start = 0; }
-    return this.indexOf(search, start) !== -1;
-  };
+        if (search instanceof RegExp) {
+            throw TypeError('first argument must not be a RegExp');
+        }
+        if (start === undefined) { start = 0; }
+        return this.indexOf(search, start) !== -1;
+    };
 }
 
 
@@ -146,8 +159,6 @@ function getDeviceId() {
 function navigationInit() {
     if (isVisible(document.querySelector('#connect'))) {
         document.querySelector('#connect').focus()
-    } else if (isVisible(document.querySelector('#abort'))) {
-        document.querySelector('#abort').focus()
     }
 }
 
@@ -208,21 +219,18 @@ function normalizeUrl(url) {
 
 function handleServerSelect() {
     var baseurl = normalizeUrl(document.querySelector('#baseurl').value);
-    var auto_connect = document.querySelector('#auto_connect').checked;
 
     if (validURL(baseurl)) {
 
         displayConnecting();
-        console.log(baseurl, auto_connect);
 
         if (curr_req) {
             console.log("There is an active request.");
             abort();
         }
         hideError();
-        getServerInfo(baseurl, auto_connect);
+        getServerInfo(baseurl, true);
     } else {
-        console.log(baseurl);
         displayError("Please enter a valid URL, it needs a scheme (http:// or https://), a hostname or IP (ex. jellyfin.local or 192.168.0.2) and a port (ex. :8096 or :8920).");
     }
 }
@@ -249,24 +257,22 @@ function hideConnecting() {
     navigationInit();
 }
 function getServerInfo(baseurl, auto_connect) {
-    curr_req = ajax.request(normalizeUrl(baseurl + "/System/Info/Public"), {
+    curr_req = ajax.request(normalizeUrl(baseurl), {
         method: "GET",
         success: function (data) {
             handleSuccessServerInfo(data, baseurl, auto_connect);
         },
-        error: handleFailure,
         abort: handleAbort,
         timeout: 5000
     });
 }
 
 function getManifest(baseurl) {
-    curr_req = ajax.request(normalizeUrl(baseurl + "/web/manifest.json"), {
+    curr_req = ajax.request(normalizeUrl(baseurl), {
         method: "GET",
         success: function (data) {
             handleSuccessManifest(data, baseurl);
         },
-        error: handleFailure,
         abort: handleAbort,
         timeout: 5000
     });
@@ -301,7 +307,7 @@ function handleSuccessServerInfo(data, baseurl, auto_connect) {
     }
 
 
-    connected_servers = lruStrategy(connected_servers,4, { 'baseurl': baseurl, 'auto_connect': auto_connect, 'id': data.Id, 'Name':data.ServerName })
+    connected_servers = lruStrategy(connected_servers, 4, { 'baseurl': baseurl, 'auto_connect': auto_connect, 'id': data.Id, 'Name': data.ServerName })
 
     storage.set('connected_servers', connected_servers);
 
@@ -310,57 +316,50 @@ function handleSuccessServerInfo(data, baseurl, auto_connect) {
     return true;
 }
 
-function lruStrategy(old_items,max_items,new_item) {
+function lruStrategy(old_items, max_items, new_item) {
     var result = {}
     var id = new_item.id
 
     delete old_items[id] // LRU: re-insert entry (in front) each time it is used
-    result[id] =  new_item
+    result[id] = new_item
     var keys = Object.keys(old_items)
-    for (var i=0; i<max_items-1; i++){
-        var current_key=keys[i]
+    for (var i = 0; i < max_items - 1; i++) {
+        var current_key = keys[i]
         result[current_key] = old_items[current_key]
     }
     return result
 }
 
 function handleSuccessManifest(data, baseurl) {
-    if(data.start_url.includes("/web")){
-        var hosturl = normalizeUrl(baseurl + "/" + data.start_url);
-    } else {
-        var hosturl = normalizeUrl(baseurl + "/web/" + data.start_url);
+    if (baseurl) {
+        var hosturl = normalizeUrl(baseurl);
     }
 
     curr_req = false;
 
     for (var server_id in connected_servers) {
         var info = connected_servers[server_id]
-        if (info['baseurl' ] == baseurl) {
-            info['hosturl'] = hosturl
-            info['Address'] = info['Address'] || baseurl
-
-            storage.set('connected_servers', connected_servers)
-            console.log("martin:handleSuccessManifest modified server");
-            console.log(info);
+        storage.set('connected_servers', connected_servers)
+        console.log("martin:handleSuccessManifest modified server");
+        console.log(info);
 
         // avoid Promise as it's buggy in some WebOS
-            getTextToInject(function (bundle) {
-                handoff(hosturl, bundle);
-            }, function (error) {
-                console.error(error);
-                displayError(error);
-                hideConnecting();
-                curr_req = false;
-            });
-            return;
-        }
+        getTextToInject(function (bundle) {
+            handoff(hosturl, bundle);
+        }, function (error) {
+            console.error(error);
+            displayError(error);
+            hideConnecting();
+            curr_req = false;
+        });
+        return;
     }
     //no id, unshoft generates unique(?) index
     connected_servers.unshift({
         'baseurl': baseurl,
         'hosturl': hosturl,
         'Name': data.shortname,
-        'Address': new URL(baseurl).hostname.slice(0,8),
+        'Address': new URL(baseurl).hostname.slice(0, 8),
     })
     storage.set('connected_server', servers)
     console.log("martin:handleSuccessManifest added server");
@@ -454,9 +453,7 @@ function injectStyleText(document, text) {
 
 function handoff(url, bundle) {
     console.log("Handoff called with: ", url)
-    //hideConnecting();
 
-    stopDiscovery();
     document.querySelector('.container').style.display = 'none';
 
     var contentFrame = document.querySelector('#contentFrame');
@@ -528,136 +525,3 @@ window.addEventListener('message', function (msg) {
             break;
     }
 });
-
-/* Server auto-discovery */
-
-var discovered_servers = {};
-var connected_servers = {};
-
-function renderServerList(server_list) {
-    for (var server_id in server_list) {
-        var server = server_list[server_id];
-        renderSingleServer(server_id, server);
-    }
-}
-
-function renderSingleServer(server_id, server) {
-    var server_list = document.getElementById("serverlist");
-    var server_card = document.getElementById("server_" + server.Id);
-
-    if (!server_card) {
-        server_card = document.createElement("li");
-        server_card.id = "server_" + server_id;
-        server_card.className = "server_card";
-        server_list.appendChild(server_card);
-    }
-    server_card.innerHTML = "";
-
-    // Server name
-    var title = document.createElement("div");
-    title.className = "server_card_title";
-    title.innerText = server.Name;
-    server_card.appendChild(title);
-
-    // Server URL
-    var server_url = document.createElement("div");
-    server_url.className = "server_card_url";
-    server_url.innerText = server.Address;
-    server_card.appendChild(server_url);
-
-    // Button
-    var btn = document.createElement("button");
-    btn.innerText = "Connect";
-    btn.type = "button";
-    btn.value = server.Address;
-    btn.onclick = function () {
-        var urlfield = document.getElementById("baseurl");
-        urlfield.value = this.value;
-        handleServerSelect();
-    };
-    server_card.appendChild(btn);
-}
-
-
-var servers_verifying = {};
-
-function verifyThenAdd(server) {
-    if (servers_verifying[server.Id]) {
-        return;
-    }
-    servers_verifying[server.Id] = server;
-
-    curr_req = ajax.request(normalizeUrl(server.Address + "/System/Info/Public"), {
-        method: "GET",
-        success: function (data) {
-            console.log("success");
-            console.log(server);
-            console.log(data);
-
-            // TODO: Do we want to autodiscover only Jellyfin servers, or anything that responds to "who is JellyfinServer?"
-            if (data.ProductName == "Jellyfin Server") {
-                server.system_info_public = data;
-                if (!discovered_servers[server.Id]) {
-                    discovered_servers[server.Id] = server;
-                    renderServerList(discovered_servers);
-                }
-            }
-            servers_verifying[server.Id] = true;
-        },
-        error: function (data) {
-            console.log("error");
-            console.log(server);
-            console.log(data);
-            servers_verifying[server.Id] = false;
-        },
-        abort: function () {
-            console.log("abort");
-            console.log(server);
-            servers_verifying[server.Id] = false;
-        },
-        timeout: 5000
-    });
-}
-
-
-var discover = null;
-
-function startDiscovery() {
-    if (discover) {
-        return;
-    }
-    console.log("Starting server autodiscovery...");
-    discover = webOS.service.request("luna://org.jellyfin.webos.service", {
-        method: "discover",
-        parameters: {
-            uniqueToken: 'fooo'
-        },
-        subscribe: true,
-        resubscribe: true,
-        onSuccess: function (args) {
-            console.log('OK:', JSON.stringify(args));
-
-            if (args.results) {
-                for (var server_id in args.results) {
-                    verifyThenAdd(args.results[server_id]);
-                }
-            }
-        },
-        onFailure: function (args) {
-            console.log('ERR:', JSON.stringify(args));
-        }
-    });
-}
-
-function stopDiscovery() {
-    if (discover) {
-        try {
-            discover.cancel();
-        } catch (err) {
-            console.warn(err);
-        }
-        discover = null;
-    }
-}
-
-startDiscovery();
