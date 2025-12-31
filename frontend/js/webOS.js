@@ -20,6 +20,7 @@
     // List of supported features
     var SupportedFeatures = [
         'exit',
+        'exitmenu',
         'externallinkdisplay',
         'htmlaudioautoplay',
         'htmlvideoautoplay',
@@ -30,16 +31,16 @@
         'targetblank',
         'screensaver',
         'subtitleappearancesettings',
-        'subtitleburnsettings',
-        'chromecast',
-        'multiserver'
+        'subtitleburnsettings'
     ];
 
     window.NativeShell = {
         AppHost: {
             init: function () {
                 postMessage('AppHost.init', AppInfo);
-                return Promise.resolve(AppInfo);
+                return getSystemInfo().then(function () {
+                    return Promise.resolve(AppInfo);
+                });
             },
 
             appName: function () {
@@ -87,6 +88,13 @@
                 return profileBuilder({ enableMkvProgressive: false });
             },
 
+            screen: function () {
+                return deviceInfo ? {
+                    width: deviceInfo.screenWidth,
+                    height: deviceInfo.screenHeight
+                } : null;
+            },
+
             supports: function (command) {
                 var isSupported = command && SupportedFeatures.indexOf(command.toLowerCase()) != -1;
                 postMessage('AppHost.supports', {
@@ -96,12 +104,6 @@
                 return isSupported;
             },
 
-            screen: function () {
-                return deviceInfo ? {
-                    width: deviceInfo.screenWidth,
-                    height: deviceInfo.screenHeight
-                } : null;
-            }
         },
 
         selectServer: function () {

@@ -1,3 +1,10 @@
+/*
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+ *
+*/
+
 var curr_req = false;
 var server_info = false;
 var manifest = false;
@@ -5,34 +12,12 @@ var manifest = false;
 var appInfo = {
     deviceId: null,
     deviceName: 'LG Smart TV',
-    appName: 'Phim Ne TV for WebOS',
-    appVersion: '0.0.0'
+    appName: 'Phim Ne for WebOS',
+    appVersion: '0.1.0'
 };
 
 var deviceInfo;
-webOS.deviceInfo(function (info) {
-    deviceInfo = info;
-});
 
-webOS.fetchAppInfo(function (info) {
-    if (!info) {
-        console.log('fetchAppInfo returned no info');
-        return;
-    }
-
-    if (!info.extraConfig) {
-        console.log('No extraConfig in appinfo.json');
-        return;
-    }
-
-    if (typeof info.extraConfig.baseUrl !== 'string') {
-        console.log('extraConfig.baseUrl missing or invalid');
-        return;
-    }
-
-    document.querySelector('#baseurl').value = info.extraConfig.baseUrl;
-    console.log('Using baseUrl from appinfo.json: ' + info.extraConfig.baseUrl);
-});
 
 //Adds .includes to string to do substring matching
 if (!String.prototype.includes) {
@@ -163,6 +148,27 @@ function navigationInit() {
 }
 
 function Init() {
+
+    webOS.fetchAppInfo(function (info) {
+        if (!info) {
+            return;
+        }
+
+        if (!info.extraConfig) {
+            return;
+        }
+
+        if (typeof info.extraConfig.baseUrl !== 'string') {
+            return;
+        }
+
+        document.querySelector('#baseurl').value = info.extraConfig.baseUrl;
+    });
+
+    webOS.deviceInfo(function (info) {
+        deviceInfo = info;
+    });
+
     appInfo.deviceId = getDeviceId();
 
     webOS.fetchAppInfo(function (info) {
@@ -179,7 +185,7 @@ function Init() {
         connected_servers = storage.get('connected_servers')
         var first_server = connected_servers[Object.keys(connected_servers)[0]]
         document.querySelector('#baseurl').value = first_server.baseurl;
-        document.querySelector('#auto_connect').checked = first_server.auto_connect;
+
         if (window.performance && window.performance.navigation.type == window.performance.navigation.TYPE_BACK_FORWARD) {
             console.log('Got here using the browser "Back" or "Forward" button, inhibiting auto connect.');
         } else {
@@ -188,7 +194,6 @@ function Init() {
                 handleServerSelect();
             }
         }
-        renderServerList(connected_servers);
     }
 }
 // Just ensure that the string has no spaces, and begins with either http:// or https:// (case insensitively), and isn't empty after the ://
@@ -257,22 +262,24 @@ function hideConnecting() {
     navigationInit();
 }
 function getServerInfo(baseurl, auto_connect) {
-    curr_req = ajax.request(normalizeUrl(baseurl), {
+    curr_req = ajax.request(normalizeUrl(baseurl + "/System/Info/Public"), {
         method: "GET",
         success: function (data) {
             handleSuccessServerInfo(data, baseurl, auto_connect);
         },
+        error: handleFailure,
         abort: handleAbort,
         timeout: 5000
     });
 }
 
 function getManifest(baseurl) {
-    curr_req = ajax.request(normalizeUrl(baseurl), {
+    curr_req = ajax.request(normalizeUrl(baseurl + "/web/manifest.json"), {
         method: "GET",
         success: function (data) {
             handleSuccessManifest(data, baseurl);
         },
+        error: handleFailure,
         abort: handleAbort,
         timeout: 5000
     });
@@ -331,28 +338,34 @@ function lruStrategy(old_items, max_items, new_item) {
 }
 
 function handleSuccessManifest(data, baseurl) {
-    if (baseurl) {
-        var hosturl = normalizeUrl(baseurl);
+    if (data.start_url.includes("/web")) {
+        var hosturl = normalizeUrl(baseurl + "/" + data.start_url);
+    } else {
+        var hosturl = normalizeUrl(baseurl + "/web/" + data.start_url);
     }
 
     curr_req = false;
 
     for (var server_id in connected_servers) {
         var info = connected_servers[server_id]
-        storage.set('connected_servers', connected_servers)
-        console.log("martin:handleSuccessManifest modified server");
-        console.log(info);
+        if (info['baseurl'] == baseurl) {
+            info['hosturl'] = hosturl
+            info['Address'] = info['Address'] || baseurl
 
-        // avoid Promise as it's buggy in some WebOS
-        getTextToInject(function (bundle) {
-            handoff(hosturl, bundle);
-        }, function (error) {
-            console.error(error);
-            displayError(error);
-            hideConnecting();
-            curr_req = false;
-        });
-        return;
+            storage.set('connected_servers', connected_servers)
+            console.log("martin:handleSuccessManifest modified server");
+
+            // avoid Promise as it's buggy in some WebOS
+            getTextToInject(function (bundle) {
+                handoff(hosturl, bundle);
+            }, function (error) {
+                console.error(error);
+                displayError(error);
+                hideConnecting();
+                curr_req = false;
+            });
+            return;
+        }
     }
     //no id, unshoft generates unique(?) index
     connected_servers.unshift({
